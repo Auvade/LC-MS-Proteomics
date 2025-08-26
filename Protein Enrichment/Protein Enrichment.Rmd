@@ -1,0 +1,223 @@
+---
+title: "Protein Enrichment"
+author: "Bodhi Hueffmeier"
+date: "2025-08-26"
+output: 
+  html_document: 
+    theme: cerulean
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Protein MS Pulldown with Magnetic Beads
+
+## Made up data to represent the Expected Results bar plot on the protein level
+
+- CPD923 is a hypothetical compound that binds to the protein on the PSYHRYTCUG peptide using a streptavidin-biotin enrichment strategy.
+
+- DMSO samples are used as a negative control since DMSO is the compound carrier liquid.
+
+- The bound samples indicates samples that underwent the enrichment protocol. The name bound represents samples that were eluted from the magnetic beads after the washing steps.
+
+- The unbound samples represent samples the did not undergo the enrichment protocol and were processed using the ordinary proteomics sample preparation workflow.
+
+
+```{r Loading Libraries, include=FALSE}
+# Loading in libraries
+library(ggplot2) # For plotting
+library(dplyr) # For data manipulation
+library(stringr) # For string manipulation
+library(tidyverse) # For data manipulation
+library(readr) # For reading in data
+library(knitr) # For creating tables
+library(kableExtra) # For creating tables
+```
+### Expected Results Bar Plot
+
+```{r Expected Results Bar Plot}
+# Creating the data frame
+# x-axis, the sample names
+Samples <- c('bound DMSO',	'bound DMSO',	'bound DMSO',	'unbound DMSO',	'unbound DMSO',	'unbound DMSO', 'bound CPD923',	'bound CPD923',	'bound CPD923',	'unbound CPD923',	'unbound CPD923',	'unbound CPD923') 
+
+# The intensities of the peptide detection
+Peptide_PSYHRYTCUG <- c(1.79E+05,	7.24E+05,	6.90E+05, 2.35E+06,	4.51E+06,	3.33E+06, 1.91E+07,	1.37E+07,	1.08E+07 ,1.79E+05,	7.24E+05,	6.90E+05)
+
+# Creating a data frame with a column for the standard error of the mean grouped by the samples. 
+dat <- data.frame(Samples, Peptide_PSYHRYTCUG)
+
+# The factor function allows the Samples to be ordered according whichever samples we chose in order. Using the reorder function only allows one to sort the column in ascending or descending order according to the y-axis variables. 
+Expected_Results <- ggplot(dat, aes(fill = Samples, y = Peptide_PSYHRYTCUG, x = factor(Samples, level = c("bound DMSO", "unbound DMSO", "bound CPD923", "unbound CPD923" )))) +
+    scale_fill_manual(values = c("#3028AD", "#C9212E", "lightblue", "orange") ) +
+    geom_col(width = 0.6, position = position_dodge()) +
+    ylab("Protein Intensity") +
+    xlab(NULL) +
+    ggtitle("Expected Results", subtitle = "Protein Enrichment") +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+    theme_bw()
+
+Expected_Results
+```
+
+As seen in the bar plot above, the CPD923 compound successfully enriched the target protein on the PSYHRYTCUG peptide compared to the DMSO control. Little to no protein was detected in the bound DMSO samples because there is a washing step that removes non-specifically bound proteins in the enrichment protocol. The unbound samples show that the protein was present in the original lysate before enrichment which is low because it usually hard to detect.
+
+## Synthetic protein enrichment dataset
+
+```{r Creating Mock Data}
+set.seed(123) # for reproducibility
+
+# Number of peptides (rows)
+n_peps <- 3  
+
+# Create mock data (log-normal distribution to mimic MS intensities)
+dat <- data.frame(
+  bound_DMSO_1 = rlnorm(n_peps, meanlog = 12, sdlog = 0.3),
+  bound_DMSO_2 = rlnorm(n_peps, meanlog = 12, sdlog = 0.3),
+  bound_DMSO_3 = rlnorm(n_peps, meanlog = 12, sdlog = 0.3),
+  
+  bound_CPD923_1 = rlnorm(n_peps, meanlog = 15, sdlog = 0.3),
+  bound_CPD923_2 = rlnorm(n_peps, meanlog = 15, sdlog = 0.3),
+  bound_CPD923_3 = rlnorm(n_peps, meanlog = 15, sdlog = 0.3),
+  
+  unbound_DMSO_1 = rlnorm(n_peps, meanlog = 10, sdlog = 0.3),
+  unbound_DMSO_2 = rlnorm(n_peps, meanlog = 10, sdlog = 0.3),
+  unbound_DMSO_3 = rlnorm(n_peps, meanlog = 10, sdlog = 0.3),
+  
+  unbound_CPD923_1 = rlnorm(n_peps, meanlog = 9, sdlog = 0.3),
+  unbound_CPD923_2 = rlnorm(n_peps, meanlog = 9, sdlog = 0.3),
+  unbound_CPD923_3 = rlnorm(n_peps, meanlog = 9, sdlog = 0.3)
+)
+
+# Add peptide identifiers
+dat <- dat %>% mutate(Peptide = paste0("pep", 1:n_peps))
+
+# Reorder columns to have Peptide first
+dat <- dat %>% select(Peptide, everything())
+
+# Display the data frame as a table
+kable(dat, format = "html", escape = FALSE, caption = "Mock Data") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+
+## Processing the data to include calculations for mean, standard error (SE), and coefficient of variation (CV)
+
+```{r}
+# Long format (regex splits "condition_replicate")
+dat_long <- dat %>%
+  pivot_longer(
+    cols = -Peptide,
+    names_to = c("Sample_names", "Replicate"),
+    names_pattern = "(.*)_(\\d+)",
+    values_to = "Intensity"
+  )
+
+# Summarize to get mean + SE per peptide/condition
+dat_summary <- dat_long %>%
+  group_by(Sample_names, Peptide) %>%
+  summarise(
+    mean_Samples = mean(Intensity, na.rm = TRUE),
+    se_Samples   = sd(Intensity, na.rm = TRUE) / sqrt(n()),
+    cv_Samples   = sd(Intensity, na.rm = TRUE) / mean(Intensity, na.rm = TRUE) * 100,
+    .groups = "drop"
+  )
+
+# Display the summarized data frame as a table
+kable(dat_summary, format = "html", escape = FALSE, caption = "Mock Data") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+## Normalizing the data to relative abundances within each sample group
+
+```{r Normalized values}
+# Normalized values (optional, for relative abundance plotting)
+dat_norm <- dat_summary %>%
+  group_by(Sample_names) %>%
+  mutate(
+    norm_mean = mean_Samples / sum(mean_Samples),
+    norm_se   = se_Samples / sum(mean_Samples)   # approximate SE scaling
+  ) %>%
+  ungroup()
+
+# Display the normalized data frame as a table
+kable(dat_norm, format = "html", escape = FALSE, caption = "Mock Data") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+### Bar Plots
+
+```{r Bar Plots}
+# Original data plot bar plots with error bars
+ggplot(dat_summary, aes(fill = Peptide, y = mean_Samples, x = Sample_names)) +
+  geom_col(width = 0.6, position = position_dodge(width = 0.6)) +
+  geom_errorbar(
+    aes(ymin = mean_Samples - se_Samples,
+        ymax = mean_Samples + se_Samples),
+    width = 0.3,
+    position = position_dodge(width = 0.6)   # <-- aligns error bars
+  ) +
+  ylab("Protein Intensity") +
+  xlab("Sample names") +
+  ggtitle("Protein Enrichment", subtitle = "Expected Results") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme_bw()
+```
+
+These results show that the compound CPD923 successfully enriched the target protein on the PSYHRYTCUG peptide compared to the DMSO control. Little to no protein was detected in the bound DMSO samples because there is a washing step that removes non-specifically bound proteins in the enrichment protocol. The unbound samples show that the protein was present in the original lysate before enrichment which is low because it usually hard to detect.
+
+
+### Normalized Bar Plots
+
+```{r Normalized Bar Plots}
+# Normalized data plot barplots with error bars
+ggplot(dat_norm, aes(fill = Peptide, y = norm_mean, x = Sample_names)) +
+  geom_col(width = 0.6, position = position_dodge(width = 0.6)) +
+  geom_errorbar(
+    aes(ymin = norm_mean - norm_se,
+        ymax = norm_mean + norm_se),
+    width = 0.3,
+    position = position_dodge(width = 0.6)
+  ) +
+  ylab("Relative Protein Intensity") +
+  xlab("Sample names") +
+  scale_y_continuous(labels = scales::percent) +
+  ggtitle("Normalized Protein Enrichment", subtitle = "Peptide Proportions") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  theme_bw()
+```
+
+In the normalized bar plot, the relative proportions of each peptide within each sample are shown. This visualization helps to compare the abundance of peptides across different conditions, highlighting the enrichment effect of CPD923 on the target protein.
+
+### CV plots
+
+```{r CV Plot with Legend}
+# Calculate mean CV per sample group
+cv_means <- dat_summary %>%
+  group_by(Sample_names) %>%
+  summarise(mean_cv = mean(cv_Samples, na.rm = TRUE))
+
+
+# Make a named vector of labels with mean values appended
+legend_labels <- setNames(
+  paste0(cv_means$Sample_names, " (mean CV = ", sprintf("%.1f", cv_means$mean_cv), "%)"),
+  cv_means$Sample_names
+)
+
+# Plot with custom legend labels
+ggplot(dat_summary, aes(x = Sample_names, y = cv_Samples, fill = Sample_names)) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_boxplot(width = 0.1, color = "black", alpha = 0.8) +
+  geom_hline(yintercept = 20, linetype = "dashed") +
+  scale_fill_manual(
+    values = c("#3028AD", "lightblue", "#C9212E", "orange"),
+    labels = legend_labels
+  ) +
+  labs(x = "", y = "CV (%)", fill = "Sample (Mean CV)") +
+  ggtitle("Coefficient of Variation (CV)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+```
+
+The CV plot shows the distribution of coefficient of variation (CV) values for each sample group. The dashed line at 20% CV indicates a common threshold for acceptable variability in proteomics data. Lower CV values suggest more consistent measurements across replicates, which is desirable for reliable quantification. The mean CV values are included in the legend for easy reference.
